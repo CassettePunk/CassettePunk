@@ -222,6 +222,7 @@
   id: BaseMobSpeciesOrganic
   abstract: true
   components:
+  - type: UniHand
   - type: Barotrauma
     damage:
       types:
