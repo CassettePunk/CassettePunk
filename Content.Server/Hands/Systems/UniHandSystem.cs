@@ -10,10 +10,10 @@ public sealed class UniHandSystem : EntitySystem
     public override void Initialize()
     {
         base.Initialize();
-        SubscribeLocalEvent<UniHandComponent, MapInitEvent>(OnMapInit);
+        SubscribeLocalEvent<HotbarHandsComponent, MapInitEvent>(OnMapInit);
     }
 
-    private void OnMapInit(Entity<UniHandComponent> entity, ref MapInitEvent args)
+    private void OnMapInit(Entity<HotbarHandsComponent> entity, ref MapInitEvent args)
     {
         var location = entity.Comp.Handedness switch
         {
@@ -21,6 +21,9 @@ public sealed class UniHandSystem : EntitySystem
             Handedness.Right => HandLocation.Right
         };
 
-        _hands.AddHand(entity.Owner, "hand", location);
+        for (var i = 0; i < entity.Comp.Count; i++)
+        {
+            _hands.AddHand(entity.Owner, $"hand_{i}", location);
+        }
     }
 }
