@@ -3,7 +3,7 @@ using Content.Shared.Hands.EntitySystems;
 
 namespace Content.Server.Hands.Systems;
 
-public sealed class UniHandSystem : EntitySystem
+public sealed class HotbarHandSystem : EntitySystem
 {
     [Dependency] private readonly SharedHandsSystem _hands = default!;
 
