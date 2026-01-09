@@ -8,11 +8,11 @@ namespace Content.Shared.Reloading.Components;
 public sealed partial class ReloadableComponent: Component
 {
     [DataField, AutoNetworkedField]
-    public string Container = string.Empty;
+    public string Container = "gun_magazine";
 
     [DataField, AutoNetworkedField]
     public ProtoId<TagPrototype> AmmoTag = string.Empty;
 
     [DataField, AutoNetworkedField]
-    public TimeSpan ReloadTime = TimeSpan.FromSeconds(1);
+    public TimeSpan ReloadTime = TimeSpan.FromSeconds(2);
 }

@@ -34,34 +34,12 @@
       - FullAuto
     soundGunshot:
       path: /Audio/Weapons/Guns/Gunshots/pistol.ogg
-  - type: ChamberMagazineAmmoProvider
-    soundRack:
-      path: /Audio/Weapons/Guns/Cock/pistol_cock.ogg
+  - type: MagazineAmmoProvider
   - type: Reloadable
-    container: gun_magazine
     ammoTag: MagazinePistol
-  - type: ItemSlots
-    slots:
-      gun_magazine:
-        name: Magazine
-        startingItem: MagazinePistol
-        insertSound: /Audio/Weapons/Guns/MagIn/pistol_magin.ogg
-        ejectSound: /Audio/Weapons/Guns/MagOut/pistol_magout.ogg
-        priority: 2
-        whitelist:
-          tags:
-            - MagazinePistol
-        whitelistFailPopup: gun-magazine-whitelist-fail
-      gun_chamber:
-        name: Chamber
-        priority: 1
-        whitelist:
-          tags:
-            - CartridgePistol
   - type: ContainerContainer
     containers:
       gun_magazine: !type:ContainerSlot
-      gun_chamber: !type:ContainerSlot
   - type: AmmoCounter
   - type: MagazineVisuals
     magState: mag
@@ -92,16 +70,6 @@
             - MagazinePistol
             - MagazinePistolHighCapacity
         whitelistFailPopup: gun-magazine-whitelist-fail
-      gun_chamber:
-        name: Chamber
-        priority: 1
-        whitelist:
-          tags:
-            - CartridgePistol
-  - type: ContainerContainer
-    containers:
-      gun_magazine: !type:ContainerSlot
-      gun_chamber: !type:ContainerSlot
   - type: StaticPrice
     price: 1000
 
@@ -156,8 +124,6 @@
       map: ["enum.GunVisualLayers.Mag"]
   - type: Clothing
     sprite: Objects/Weapons/Guns/Pistols/cobra.rsi
-  - type: ChamberMagazineAmmoProvider
-    boltClosed: null
   - type: Gun
     fireRate: 4
     soundGunshot:
@@ -178,16 +144,6 @@
           tags:
             - MagazinePistolCaselessRifle
         whitelistFailPopup: gun-magazine-whitelist-fail
-      gun_chamber:
-        name: Chamber
-        priority: 1
-        whitelist:
-          tags:
-            - CartridgeCaselessRifle
-  - type: ContainerContainer
-    containers:
-      gun_magazine: !type:ContainerSlot
-      gun_chamber: !type:ContainerSlot
   - type: StaticPrice
     price: 1500
 
@@ -254,9 +210,3 @@
           tags:
             - MagazineMagnum
         whitelistFailPopup: gun-magazine-whitelist-fail
-      gun_chamber:
-        name: Chamber
-        priority: 1
-        whitelist:
-          tags:
-            - CartridgeMagnum

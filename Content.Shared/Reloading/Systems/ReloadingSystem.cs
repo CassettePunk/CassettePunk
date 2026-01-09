@@ -1,16 +1,16 @@
-using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using Content.Shared.DoAfter;
 using Content.Shared.Hands.EntitySystems;
 using Content.Shared.Input;
 using Content.Shared.Inventory;
 using Content.Shared.Reloading.Components;
-using Content.Shared.Storage;
 using Content.Shared.Tag;
+using Content.Shared.Weapons.Ranged.Components;
 using Robust.Shared.Containers;
 using Robust.Shared.Input.Binding;
 using Robust.Shared.Player;
-using Robust.Shared.Utility;
+using Robust.Shared.Serialization;
 
 namespace Content.Shared.Reloading.Systems;
 
@@ -20,14 +20,28 @@ public sealed class ReloadingSystem: EntitySystem
     [Dependency] private readonly SharedContainerSystem _container = default!;
     [Dependency] private readonly SharedHandsSystem _hands = default!;
     [Dependency] private readonly TagSystem _tag = default!;
+    [Dependency] private readonly SharedDoAfterSystem _doAfter = default!;
 
     public override void Initialize()
     {
         base.Initialize();
 
+        SubscribeLocalEvent<BallisticAmmoProviderComponent, ScoreReloadableEvent>(OnReloadBallistic);
+        SubscribeLocalEvent<ReloadableComponent, ReloadDoAfterEvent>(OnReloadDoAfterFinished);
+
         CommandBinds.Builder
             .Bind(ContentKeyFunctions.Reload, InputCmdHandler.FromDelegate(HandleReload, handle: false, outsidePrediction: false))
             .Register<ReloadingSystem>();
+    }
+
+    private void OnReloadBallistic(Entity<BallisticAmmoProviderComponent> entity, ref ScoreReloadableEvent args)
+    {
+        if (args.Handled)
+            return;
+        args.Score = entity.Comp.Count;
+        if (entity.Comp.Count == entity.Comp.Capacity)
+            args.Full = true;
+        args.Handled = true;
     }
 
     public override void Shutdown()
@@ -40,44 +54,102 @@ public sealed class ReloadingSystem: EntitySystem
     {
         if (session?.AttachedEntity is null)
             return;
-        ReloadNow(session.AttachedEntity.Value);
+        StartReloadDoAfter(session.AttachedEntity.Value);
     }
 
-    private bool ResolveReloadingArgs(ref EntityUid reloader, [NotNullWhen(true)] ref Entity<ReloadableComponent?>? reloadee, [NotNullWhen(true)] ref EntityUid? storage)
+    private bool TryGetReloadingArgsReloadee(EntityUid reloader, [NotNullWhen(true)] out Entity<ReloadableComponent>? reloadee)
     {
-        if (reloadee is null)
-        {
-            if (!_hands.TryGetHeldItem(reloader, "hand", out var held))
-                return false;
-            reloadee = held;
-        }
+        reloadee = null;
 
-        var reloadableComp = reloadee.Value.Comp;
-        if (!Resolve(reloadee.Value.Owner, ref reloadableComp))
+        if (!_hands.TryGetActiveItem(reloader, out var reloadeeEntity))
             return false;
-        reloadee = (reloadee.Value.Owner, reloadableComp);
 
-        if (storage is null)
-        {
-            if (!_inventory.TryGetSlotEntity(reloader, "back", out var backpack))
-                return false;
-            storage = backpack;
-        }
+        if (!TryComp<ReloadableComponent>(reloadeeEntity, out var reloadable))
+            return false;
+
+        reloadee = (reloadeeEntity.Value, reloadable);
+        return true;
+    }
+
+    private bool TryGetReloadingArgsStorage(EntityUid reloader, [NotNullWhen(true)] out EntityUid? storage)
+    {
+        storage = null;
+
+        if (!_inventory.TryGetSlotEntity(reloader, "back", out storage))
+            return false;
 
         return true;
     }
 
-    public bool ReloadNow(EntityUid reloader, Entity<ReloadableComponent?>? reloadee = null, EntityUid? storage = null)
+    public bool StartReloadDoAfter(EntityUid reloader)
     {
-        if (!ResolveReloadingArgs(ref reloader, ref reloadee, ref storage))
+        if (!TryGetReloadingArgsReloadee(reloader, out var reloadee))
             return false;
 
-        var replacementContainer = _container.EnsureContainer<Container>(storage.Value, "storagebase");
-        var replacement = replacementContainer.ContainedEntities.FirstOrNull(x => _tag.HasTag(x, reloadee.Value.Comp!.AmmoTag));
+        if (!TryGetReloadingArgsStorage(reloader, out var storage))
+            return false;
+
+        return StartReloadDoAfter(reloader, reloadee.Value, storage.Value);
+    }
+
+    public bool StartReloadDoAfter(EntityUid reloader, Entity<ReloadableComponent> reloadee, EntityUid storage)
+    {
+        if (!ReloadNow(reloader, reloadee, storage, suppress: true))
+            return false;
+
+        var doAfterArgs = new DoAfterArgs(EntityManager, reloader, reloadee.Comp.ReloadTime, new ReloadDoAfterEvent(), reloadee.Owner, null, reloadee.Owner)
+        {
+            BreakOnDamage = false,
+            BreakOnDropItem = true,
+            BreakOnHandChange = true,
+            BreakOnMove = false,
+            BreakOnWeightlessMove = false
+        };
+
+        return _doAfter.TryStartDoAfter(doAfterArgs);
+    }
+
+    private void OnReloadDoAfterFinished(Entity<ReloadableComponent> entity, ref ReloadDoAfterEvent args)
+    {
+        if (!TryGetReloadingArgsStorage(args.User, out var storage))
+            return;
+
+        ReloadNow(args.User, entity, storage.Value);
+    }
+
+    public bool ReloadNow(EntityUid reloader, Entity<ReloadableComponent> reloadee, EntityUid storage, bool suppress = false)
+    {
+        var replacementContainer = _container.EnsureContainer<Container>(storage, "storagebase");
+
+        EntityUid? replacement = null;
+        var highestScore = 0;
+        var lowestNetID = int.MaxValue;
+        foreach (var item in replacementContainer.ContainedEntities.Where(x => _tag.HasTag(x, reloadee.Comp.AmmoTag)))
+        {
+            var ev = new ScoreReloadableEvent();
+            RaiseLocalEvent(item, ref ev);
+            if (ev.Score <= 0)
+                continue;
+            if (ev.Score > highestScore)
+            {
+                highestScore = ev.Score;
+                replacement = item;
+                lowestNetID = GetNetEntity(item).Id;
+            }
+            else if (ev.Score == highestScore && GetNetEntity(item).Id < lowestNetID)
+            {
+                lowestNetID = GetNetEntity(item).Id;
+                replacement = item;
+            }
+        }
+
         if (replacement is null)
             return false;
 
-        var ammoContainer = _container.EnsureContainer<ContainerSlot>(reloadee.Value.Owner, reloadee.Value.Comp!.Container);
+        if (suppress)
+            return true;
+
+        var ammoContainer = _container.EnsureContainer<ContainerSlot>(reloadee.Owner, reloadee.Comp.Container);
         var ammo = ammoContainer.ContainedEntity;
         if (ammo is not null)
             _container.InsertOrDrop(ammo.Value, replacementContainer);
@@ -88,3 +160,14 @@ public sealed class ReloadingSystem: EntitySystem
         return true;
     }
 }
+
+/// <summary>
+/// Raised on an ammo to score how good it is to be reloaded with.
+/// For ballistic ammo for example, it will just count the number of bullets.
+/// </summary>
+/// <param name="Score"></param>
+[ByRefEvent]
+public record struct ScoreReloadableEvent(int Score = 0, bool Full = false, bool Handled = false);
+
+[Serializable, NetSerializable]
+public sealed partial class ReloadDoAfterEvent : SimpleDoAfterEvent;
