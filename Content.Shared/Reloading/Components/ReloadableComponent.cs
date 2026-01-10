@@ -18,11 +18,11 @@ public sealed partial class ReloadableComponent: Component
     /// The sound that plays when reloading starts.
     /// </summary>
     [DataField, AutoNetworkedField]
-    public SoundSpecifier ReloadStartSound;
+    public SoundSpecifier? ReloadStartSound;
 
     /// <summary>
     /// The sound that plays when reloading finishes.
     /// </summary>
     [DataField, AutoNetworkedField]
-    public SoundSpecifier ReloadEndSound;
+    public SoundSpecifier? ReloadEndSound;
 }

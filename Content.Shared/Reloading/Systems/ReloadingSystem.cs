@@ -9,6 +9,7 @@ using Content.Shared.Reloading.Components;
 using Content.Shared.Tag;
 using Content.Shared.Weapons.Ranged;
 using Content.Shared.Weapons.Ranged.Components;
+using Content.Shared.Weapons.Ranged.Events;
 using Content.Shared.Weapons.Ranged.Systems;
 using Robust.Shared.Audio.Systems;
 using Robust.Shared.Containers;
@@ -16,6 +17,7 @@ using Robust.Shared.Input.Binding;
 using Robust.Shared.Player;
 using Robust.Shared.Prototypes;
 using Robust.Shared.Serialization;
+using Robust.Shared.Utility;
 
 namespace Content.Shared.Reloading.Systems;
 
@@ -35,9 +37,17 @@ public sealed class ReloadingSystem: EntitySystem
 
         SubscribeLocalEvent<BallisticAmmoProviderComponent, ScoreReloadableEvent>(OnScoreReloadableBallistic);
         SubscribeLocalEvent<ReloadableComponent, ReloadDoAfterEvent>(OnReloadDoAfterFinished);
+
+        // magazine
         SubscribeLocalEvent<MagazineAmmoProviderComponent, GetReloadablePredicate>(OnGetPredicateMagazine);
-        SubscribeLocalEvent<MagazineAmmoProviderComponent, ReloadEvent>(OnReloadMagazine);
         SubscribeLocalEvent<MagazineAmmoProviderComponent, AttemptReloadEvent>(OnAttemptReloadMagazine);
+        SubscribeLocalEvent<MagazineAmmoProviderComponent, ReloadEvent>(OnReloadMagazine);
+
+        // ballistic
+        SubscribeLocalEvent<BallisticAmmoProviderComponent, GetReloadablePredicate>(OnGetPredicateBallistic);
+        SubscribeLocalEvent<BallisticAmmoProviderComponent, AttemptReloadEvent>(OnAttemptReloadBallistic);
+        SubscribeLocalEvent<BallisticAmmoProviderComponent, ReloadEvent>(OnReloadBallistic);
+
         SubscribeLocalEvent<ActiveReloadingComponent, AttemptShootEvent>(OnAttemptShoot);
 
         CommandBinds.Builder
@@ -68,6 +78,26 @@ public sealed class ReloadingSystem: EntitySystem
         args.Predicate = x => _tag.HasAnyTag(x, tags);
     }
 
+    private void OnGetPredicateBallistic(Entity<BallisticAmmoProviderComponent> entity, ref GetReloadablePredicate args)
+    {
+        if (args.Handled)
+            return;
+        var tags = entity.Comp.Whitelist?.Tags;
+        if (tags is null)
+            return;
+        args.Handled = true;
+        args.Predicate = x =>
+        {
+            if (!TryComp<BallisticAmmoProviderComponent>(x, out var ammos))
+                return false;
+            if (ammos.Whitelist?.Tags is null)
+                return false;
+            if (!tags.Intersect(ammos.Whitelist.Tags).Any())
+                return false;
+            return ammos.Count >= 1;
+        };
+    }
+
     private void OnAttemptReloadMagazine(Entity<MagazineAmmoProviderComponent> entity, ref AttemptReloadEvent args)
     {
         var ammoSlot = _container.EnsureContainer<ContainerSlot>(entity, SharedGunSystem.MagazineSlot);
@@ -77,6 +107,12 @@ public sealed class ReloadingSystem: EntitySystem
         var ev = new ScoreReloadableEvent();
         RaiseLocalEvent(oldAmmo.Value, ref ev);
         if (ev.Full)
+            args.Cancelled = true;
+    }
+
+    private void OnAttemptReloadBallistic(Entity<BallisticAmmoProviderComponent> entity, ref AttemptReloadEvent args)
+    {
+        if (entity.Comp.Count >= entity.Comp.Capacity)
             args.Cancelled = true;
     }
 
@@ -93,6 +129,38 @@ public sealed class ReloadingSystem: EntitySystem
         if (oldAmmo is not null)
             _container.InsertOrDrop(oldAmmo.Value, args.ReplacementContainer);
         _gun.UpdateAmmoCount(entity.Owner);
+    }
+
+    private void OnReloadBallistic(Entity<BallisticAmmoProviderComponent> entity, ref ReloadEvent args)
+    {
+        if (args.Handled)
+            return;
+
+        if (entity.Comp.Count >= entity.Comp.Capacity)
+            return;
+
+        if (!TryComp<BallisticAmmoProviderComponent>(args.Replacement, out var ammos))
+            return;
+
+        var ammo = ammos.Container.ContainedEntities.FirstOrNull();
+        if (ammo is not null)
+        {
+            args.Handled = true;
+            _container.Insert(ammo.Value, entity.Comp.Container);
+            _gun.UpdateAmmoCount(args.Replacement);
+        }
+        else if (ammos.UnspawnedCount >= 1)
+        {
+            if (!PredictedTrySpawnInContainer(ammos.Proto, entity, "ballistic-ammo", out _))
+                return;
+            _gun.SetBallisticUnspawned(entity, ammos.UnspawnedCount - 1);
+            args.Handled = true;
+        }
+
+        _gun.UpdateAmmoCount(entity.Owner);
+        
+        if (entity.Comp.Count < entity.Comp.Capacity)
+            StartReloadDoAfter(args.Reloader, args.Reloadee);
     }
 
     private void OnAttemptShoot(Entity<ActiveReloadingComponent> entity, ref AttemptShootEvent args)
@@ -146,6 +214,14 @@ public sealed class ReloadingSystem: EntitySystem
             return false;
 
         return StartReloadDoAfter(reloader, reloadee.Value, storage.Value);
+    }
+
+    public bool StartReloadDoAfter(EntityUid reloader, Entity<ReloadableComponent> reloadee)
+    {
+        if (!TryGetReloadingArgsStorage(reloader, out var storage))
+            return false;
+
+        return StartReloadDoAfter(reloader, reloadee, storage.Value);
     }
 
     public bool StartReloadDoAfter(EntityUid reloader, Entity<ReloadableComponent> reloadee, EntityUid storage)
@@ -227,8 +303,12 @@ public sealed class ReloadingSystem: EntitySystem
         if (suppress)
             return true;
 
-        var reloadEv = new ReloadEvent(replacement.Value, replacementContainer);
+        var reloadEv = new ReloadEvent(replacement.Value, replacementContainer, reloader, reloadee);
         RaiseLocalEvent(reloadee.Owner, ref reloadEv);
+
+        if (!reloadEv.Handled)
+            return false;
+
         _audio.PlayPredicted(reloadee.Comp.ReloadEndSound, reloader, reloader);
         return true;
     }
@@ -249,7 +329,7 @@ public record struct ScoreReloadableEvent(int Score = 0, bool Full = false, bool
 /// <param name="Suppress">If it is set to true, then it won't actually reload.</param>
 /// <param name="Handled">If a reload was successful or was set to </param>
 [ByRefEvent]
-public record struct ReloadEvent(EntityUid Replacement, Container ReplacementContainer, bool Handled = false);
+public record struct ReloadEvent(EntityUid Replacement, Container ReplacementContainer, EntityUid Reloader, Entity<ReloadableComponent> Reloadee, bool Handled = false);
 
 /// <summary>
 /// Raised on an item to fetch a predicate to evaluate if it's valid to be used to reload with.
