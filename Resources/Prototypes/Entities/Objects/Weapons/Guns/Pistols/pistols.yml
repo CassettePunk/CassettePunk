@@ -35,8 +35,11 @@
     soundGunshot:
       path: /Audio/Weapons/Guns/Gunshots/pistol.ogg
   - type: MagazineAmmoProvider
+    ammoTagWhitelist:
+    - MagazinePistol
   - type: Reloadable
-    ammoTag: MagazinePistol
+    reloadStartSound: /Audio/Weapons/Guns/MagOut/pistol_magout.ogg
+    reloadEndSound: /Audio/Weapons/Guns/MagIn/pistol_magin.ogg
   - type: ContainerContainer
     containers:
       gun_magazine: !type:ContainerSlot
@@ -57,19 +60,6 @@
   components:
   - type: Sprite
     sprite: Objects/Weapons/Guns/Pistols/viper.rsi
-  - type: ItemSlots
-    slots:
-      gun_magazine:
-        name: Magazine
-        startingItem: MagazinePistol
-        insertSound: /Audio/Weapons/Guns/MagIn/pistol_magin.ogg
-        ejectSound: /Audio/Weapons/Guns/MagOut/pistol_magout.ogg
-        priority: 2
-        whitelist:
-          tags:
-            - MagazinePistol
-            - MagazinePistolHighCapacity
-        whitelistFailPopup: gun-magazine-whitelist-fail
   - type: StaticPrice
     price: 1000
 
@@ -124,6 +114,9 @@
       map: ["enum.GunVisualLayers.Mag"]
   - type: Clothing
     sprite: Objects/Weapons/Guns/Pistols/cobra.rsi
+  - type: MagazineAmmoProvider
+    ammoTagWhitelist:
+    - MagazinePistolCaselessRifle
   - type: Gun
     fireRate: 4
     soundGunshot:
@@ -132,18 +125,6 @@
         volume: -14
     availableModes:
     - SemiAuto
-  - type: ItemSlots
-    slots:
-      gun_magazine:
-        name: Magazine
-        startingItem: MagazinePistolCaselessRifle
-        insertSound: /Audio/Weapons/Guns/MagIn/pistol_magin.ogg
-        ejectSound: /Audio/Weapons/Guns/MagOut/pistol_magout.ogg
-        priority: 2
-        whitelist:
-          tags:
-            - MagazinePistolCaselessRifle
-        whitelistFailPopup: gun-magazine-whitelist-fail
   - type: StaticPrice
     price: 1500
 
@@ -186,6 +167,9 @@
       map: ["enum.GunVisualLayers.Base"]
     - state: mag-0
       map: ["enum.GunVisualLayers.Mag"]
+  - type: MagazineAmmoProvider
+    ammoTagWhitelist:
+    - MagazineMagnum
   - type: Clothing
     sprite: Objects/Weapons/Guns/Pistols/N1984.rsi
   - type: Gun
@@ -198,15 +182,3 @@
     - SemiAuto
     soundGunshot:
       path: /Audio/Weapons/Guns/Gunshots/mk58.ogg
-  - type: ItemSlots
-    slots:
-      gun_magazine:
-        name: Magazine
-        startingItem: MagazineMagnum
-        insertSound: /Audio/Weapons/Guns/MagIn/pistol_magin.ogg
-        ejectSound: /Audio/Weapons/Guns/MagOut/pistol_magout.ogg
-        priority: 2
-        whitelist:
-          tags:
-            - MagazineMagnum
-        whitelistFailPopup: gun-magazine-whitelist-fail
