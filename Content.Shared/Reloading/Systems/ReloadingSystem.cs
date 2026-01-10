@@ -25,6 +25,7 @@ public sealed class ReloadingSystem: EntitySystem
     [Dependency] private readonly TagSystem _tag = default!;
     [Dependency] private readonly SharedDoAfterSystem _doAfter = default!;
     [Dependency] private readonly SharedAudioSystem _audio = default!;
+    [Dependency] private readonly SharedGunSystem _gun = default!;
 
     public override void Initialize()
     {
@@ -83,6 +84,7 @@ public sealed class ReloadingSystem: EntitySystem
         _container.Insert(args.Replacement, ammoSlot);
         if (oldAmmo is not null)
             _container.InsertOrDrop(oldAmmo.Value, args.ReplacementContainer);
+        _gun.UpdateAmmoCount(entity.Owner);
     }
 
     public override void Shutdown()
@@ -164,9 +166,14 @@ public sealed class ReloadingSystem: EntitySystem
 
     public bool ReloadNow(EntityUid reloader, Entity<ReloadableComponent> reloadee, EntityUid storage, bool suppress = false)
     {
+        var attemptEv = new AttemptReloadEvent();
+        RaiseLocalEvent(reloadee.Owner, ref attemptEv);
+        if (attemptEv.Cancelled)
+            return false;
+
         var replacementContainer = _container.EnsureContainer<Container>(storage, "storagebase");
         var predicateEv = new GetReloadablePredicate();
-        RaiseLocalEvent(reloader, ref predicateEv);
+        RaiseLocalEvent(reloadee.Owner, ref predicateEv);
         if (!predicateEv.Handled)
             return false;
 
@@ -237,6 +244,7 @@ public record struct GetReloadablePredicate(Predicate<EntityUid>? Predicate, boo
 /// Cancelled if the item is already full, for example.
 /// </summary>
 /// <param name="Cancelled"></param>
+[ByRefEvent]
 public record struct AttemptReloadEvent(bool Cancelled = false);
 
 [Serializable, NetSerializable]
