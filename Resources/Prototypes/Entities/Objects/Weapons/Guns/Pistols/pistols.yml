@@ -35,8 +35,18 @@
     soundGunshot:
       path: /Audio/Weapons/Guns/Gunshots/pistol.ogg
   - type: MagazineAmmoProvider
-    ammoTagWhitelist:
-    - MagazinePistol
+  - type: ItemSlots
+    slots:
+      gun_magazine:
+        name: Magazine
+        startingItem: MagazinePistol
+        disableEject: true
+        insertOnInteract: false
+        swap: false
+        whitelist:
+          tags:
+          - MagazinePistol
+        whitelistFailPopup: gun-magazine-whitelist-fail
   - type: Reloadable
     reloadStartSound: /Audio/Weapons/Guns/MagOut/pistol_magout.ogg
     reloadEndSound: /Audio/Weapons/Guns/MagIn/pistol_magin.ogg
@@ -115,8 +125,18 @@
   - type: Clothing
     sprite: Objects/Weapons/Guns/Pistols/cobra.rsi
   - type: MagazineAmmoProvider
-    ammoTagWhitelist:
-    - MagazinePistolCaselessRifle
+  - type: ItemSlots
+    slots:
+      gun_magazine:
+        name: Magazine
+        startingItem: MagazinePistolCaselessRifle
+        disableEject: true
+        insertOnInteract: false
+        swap: false
+        whitelist:
+          tags:
+          - MagazinePistolCaselessRifle
+        whitelistFailPopup: gun-magazine-whitelist-fail
   - type: Gun
     fireRate: 4
     soundGunshot:
@@ -168,8 +188,18 @@
     - state: mag-0
       map: ["enum.GunVisualLayers.Mag"]
   - type: MagazineAmmoProvider
-    ammoTagWhitelist:
-    - MagazineMagnum
+  - type: ItemSlots
+    slots:
+      gun_magazine:
+        name: Magazine
+        startingItem: MagazineMagnum
+        disableEject: true
+        insertOnInteract: false
+        swap: false
+        whitelist:
+          tags:
+          - MagazineMagnum
+        whitelistFailPopup: gun-magazine-whitelist-fail
   - type: Clothing
     sprite: Objects/Weapons/Guns/Pistols/N1984.rsi
   - type: Gun

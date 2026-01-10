@@ -1,5 +1,6 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using Content.Shared.Containers.ItemSlots;
 using Content.Shared.DoAfter;
 using Content.Shared.Hands.EntitySystems;
 using Content.Shared.Input;
@@ -13,6 +14,7 @@ using Robust.Shared.Audio.Systems;
 using Robust.Shared.Containers;
 using Robust.Shared.Input.Binding;
 using Robust.Shared.Player;
+using Robust.Shared.Prototypes;
 using Robust.Shared.Serialization;
 
 namespace Content.Shared.Reloading.Systems;
@@ -36,6 +38,7 @@ public sealed class ReloadingSystem: EntitySystem
         SubscribeLocalEvent<MagazineAmmoProviderComponent, GetReloadablePredicate>(OnGetPredicateMagazine);
         SubscribeLocalEvent<MagazineAmmoProviderComponent, ReloadEvent>(OnReloadMagazine);
         SubscribeLocalEvent<MagazineAmmoProviderComponent, AttemptReloadEvent>(OnAttemptReloadMagazine);
+        SubscribeLocalEvent<ActiveReloadingComponent, AttemptShootEvent>(OnAttemptShoot);
 
         CommandBinds.Builder
             .Bind(ContentKeyFunctions.Reload, InputCmdHandler.FromDelegate(HandleReload, handle: false, outsidePrediction: false))
@@ -56,8 +59,13 @@ public sealed class ReloadingSystem: EntitySystem
     {
         if (args.Handled)
             return;
+        if (!TryComp<ItemSlotsComponent>(entity.Owner, out var itemSlots))
+            return;
+        var tags = itemSlots.Slots[SharedGunSystem.MagazineSlot].Whitelist?.Tags;
+        if (tags is null)
+            return;
         args.Handled = true;
-        args.Predicate = x => _tag.HasAnyTag(x, entity.Comp.AmmoTagWhitelist);
+        args.Predicate = x => _tag.HasAnyTag(x, tags);
     }
 
     private void OnAttemptReloadMagazine(Entity<MagazineAmmoProviderComponent> entity, ref AttemptReloadEvent args)
@@ -85,6 +93,11 @@ public sealed class ReloadingSystem: EntitySystem
         if (oldAmmo is not null)
             _container.InsertOrDrop(oldAmmo.Value, args.ReplacementContainer);
         _gun.UpdateAmmoCount(entity.Owner);
+    }
+
+    private void OnAttemptShoot(Entity<ActiveReloadingComponent> entity, ref AttemptShootEvent args)
+    {
+        args.Cancelled = true;
     }
 
     public override void Shutdown()
@@ -142,22 +155,29 @@ public sealed class ReloadingSystem: EntitySystem
 
         var doAfterArgs = new DoAfterArgs(EntityManager, reloader, reloadee.Comp.ReloadTime, new ReloadDoAfterEvent(), reloadee.Owner, null, reloadee.Owner)
         {
-            BreakOnDamage = false,
+            BreakOnDamage = true,
             BreakOnDropItem = true,
             BreakOnHandChange = true,
             BreakOnMove = false,
-            BreakOnWeightlessMove = false
+            BreakOnWeightlessMove = false,
+            NeedHand = true
         };
 
         if (!_doAfter.TryStartDoAfter(doAfterArgs))
             return false;
 
+        AddComp(reloadee.Owner, new ActiveReloadingComponent());
         _audio.PlayPredicted(reloadee.Comp.ReloadStartSound, reloader, reloader);
         return true;
     }
 
     private void OnReloadDoAfterFinished(Entity<ReloadableComponent> entity, ref ReloadDoAfterEvent args)
     {
+        RemComp<ActiveReloadingComponent>(entity.Owner);
+
+        if (args.Cancelled)
+            return;
+
         if (!TryGetReloadingArgsStorage(args.User, out var storage))
             return;
 

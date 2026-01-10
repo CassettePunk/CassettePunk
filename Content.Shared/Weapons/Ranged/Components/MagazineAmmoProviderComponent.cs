@@ -14,17 +14,12 @@ namespace Content.Shared.Weapons.Ranged;
 public partial class MagazineAmmoProviderComponent : AmmoProviderComponent
 {
     [DataField]
-    public SoundSpecifier? SoundAutoEject = new SoundPathSpecifier("/Audio/Weapons/Guns/EmptyAlarm/smg_empty_alarm.ogg");
+    public SoundSpecifier? SoundAutoEject =
+        new SoundPathSpecifier("/Audio/Weapons/Guns/EmptyAlarm/smg_empty_alarm.ogg");
 
     /// <summary>
     /// Should the magazine automatically eject when empty.
     /// </summary>
     [DataField]
     public bool AutoEject = false;
-
-    /// <summary>
-    /// A whitelist on what tags magazines can have.
-    /// </summary>
-    [DataField]
-    public List<ProtoId<TagPrototype>> AmmoTagWhitelist = new();
 }
