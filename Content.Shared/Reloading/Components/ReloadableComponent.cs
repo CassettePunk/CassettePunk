@@ -12,7 +12,7 @@ public sealed partial class ReloadableComponent: Component
     /// The time it takes to reload this item.
     /// </summary>
     [DataField, AutoNetworkedField]
-    public TimeSpan ReloadTime = TimeSpan.FromSeconds(2);
+    public TimeSpan ReloadTime = TimeSpan.FromSeconds(2.5);
 
     /// <summary>
     /// The sound that plays when reloading starts.

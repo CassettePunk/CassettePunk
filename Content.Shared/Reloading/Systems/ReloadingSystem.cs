@@ -35,20 +35,19 @@ public sealed class ReloadingSystem: EntitySystem
     {
         base.Initialize();
 
-        SubscribeLocalEvent<BallisticAmmoProviderComponent, ScoreReloadableEvent>(OnScoreReloadableBallistic);
         SubscribeLocalEvent<ReloadableComponent, ReloadDoAfterEvent>(OnReloadDoAfterFinished);
+        SubscribeLocalEvent<ActiveReloadingComponent, AttemptShootEvent>(OnAttemptShoot);
 
         // magazine
         SubscribeLocalEvent<MagazineAmmoProviderComponent, GetReloadablePredicate>(OnGetPredicateMagazine);
-        SubscribeLocalEvent<MagazineAmmoProviderComponent, AttemptReloadEvent>(OnAttemptReloadMagazine);
+        SubscribeLocalEvent<MagazineAmmoProviderComponent, ScoreCurrentReloadableEvent>(OnScoreCurrentReloadableMagazine);
         SubscribeLocalEvent<MagazineAmmoProviderComponent, ReloadEvent>(OnReloadMagazine);
 
         // ballistic
         SubscribeLocalEvent<BallisticAmmoProviderComponent, GetReloadablePredicate>(OnGetPredicateBallistic);
-        SubscribeLocalEvent<BallisticAmmoProviderComponent, AttemptReloadEvent>(OnAttemptReloadBallistic);
+        SubscribeLocalEvent<BallisticAmmoProviderComponent, ScoreReloadableEvent>(OnScoreReloadableBallistic);
+        SubscribeLocalEvent<BallisticAmmoProviderComponent, ScoreCurrentReloadableEvent>(OnScoreCurrentReloadableBallistic);
         SubscribeLocalEvent<BallisticAmmoProviderComponent, ReloadEvent>(OnReloadBallistic);
-
-        SubscribeLocalEvent<ActiveReloadingComponent, AttemptShootEvent>(OnAttemptShoot);
 
         CommandBinds.Builder
             .Bind(ContentKeyFunctions.Reload, InputCmdHandler.FromDelegate(HandleReload, handle: false, outsidePrediction: false))
@@ -63,6 +62,34 @@ public sealed class ReloadingSystem: EntitySystem
         if (entity.Comp.Count == entity.Comp.Capacity)
             args.Full = true;
         args.Handled = true;
+    }
+
+    private void OnScoreCurrentReloadableMagazine(Entity<MagazineAmmoProviderComponent> entity, ref ScoreCurrentReloadableEvent args)
+    {
+        if (args.Handled)
+            return;
+
+        var ammoSlot = _container.EnsureContainer<ContainerSlot>(entity.Owner, SharedGunSystem.MagazineSlot);
+        if (ammoSlot.ContainedEntity is null)
+            return;
+
+        var ev = new ScoreReloadableEvent();
+        RaiseLocalEvent(ammoSlot.ContainedEntity.Value, ref ev);
+        args.Handled = ev.Handled;
+        args.Score = ev.Score;
+        args.Full = ev.Full;
+    }
+
+    private void OnScoreCurrentReloadableBallistic(Entity<BallisticAmmoProviderComponent> entity, ref ScoreCurrentReloadableEvent args)
+    {
+        if (args.Handled)
+            return;
+
+        var ev = new ScoreReloadableEvent();
+        RaiseLocalEvent(entity.Owner, ref ev);
+        args.Handled = ev.Handled;
+        args.Score = ev.Score;
+        args.Full = ev.Full;
     }
 
     private void OnGetPredicateMagazine(Entity<MagazineAmmoProviderComponent> entity, ref GetReloadablePredicate args)
@@ -86,6 +113,7 @@ public sealed class ReloadingSystem: EntitySystem
         if (tags is null)
             return;
         args.Handled = true;
+        args.Strategy = ScoringStrategy.Lowest;
         args.Predicate = x =>
         {
             if (!TryComp<BallisticAmmoProviderComponent>(x, out var ammos))
@@ -96,24 +124,6 @@ public sealed class ReloadingSystem: EntitySystem
                 return false;
             return ammos.Count >= 1;
         };
-    }
-
-    private void OnAttemptReloadMagazine(Entity<MagazineAmmoProviderComponent> entity, ref AttemptReloadEvent args)
-    {
-        var ammoSlot = _container.EnsureContainer<ContainerSlot>(entity, SharedGunSystem.MagazineSlot);
-        var oldAmmo = ammoSlot.ContainedEntity;
-        if (oldAmmo is null)
-            return;
-        var ev = new ScoreReloadableEvent();
-        RaiseLocalEvent(oldAmmo.Value, ref ev);
-        if (ev.Full)
-            args.Cancelled = true;
-    }
-
-    private void OnAttemptReloadBallistic(Entity<BallisticAmmoProviderComponent> entity, ref AttemptReloadEvent args)
-    {
-        if (entity.Comp.Count >= entity.Comp.Capacity)
-            args.Cancelled = true;
     }
 
     private void OnReloadMagazine(Entity<MagazineAmmoProviderComponent> entity, ref ReloadEvent args)
@@ -139,27 +149,21 @@ public sealed class ReloadingSystem: EntitySystem
         if (entity.Comp.Count >= entity.Comp.Capacity)
             return;
 
-        if (!TryComp<BallisticAmmoProviderComponent>(args.Replacement, out var ammos))
+        var coordinates = Transform(args.Reloader).Coordinates;
+        var ev = new TakeAmmoEvent(1, new(), coordinates, args.Reloader);
+        RaiseLocalEvent(args.Replacement, ev);
+
+        if (ev.Ammo.Count == 0)
             return;
 
-        var ammo = ammos.Container.ContainedEntities.FirstOrNull();
-        if (ammo is not null)
-        {
-            args.Handled = true;
-            _container.Insert(ammo.Value, entity.Comp.Container);
-            _gun.UpdateAmmoCount(args.Replacement);
-        }
-        else if (ammos.UnspawnedCount >= 1)
-        {
-            if (!PredictedTrySpawnInContainer(ammos.Proto, entity, "ballistic-ammo", out _))
-                return;
-            _gun.SetBallisticUnspawned(entity, ammos.UnspawnedCount - 1);
-            args.Handled = true;
-        }
+        var ammo = ev.Ammo[0].Entity;
+        if (ammo is null)
+            return;
 
-        _gun.UpdateAmmoCount(entity.Owner);
-        
-        if (entity.Comp.Count < entity.Comp.Capacity)
+        args.Handled = true;
+        _gun.TryBallisticInsert(entity, ammo.Value, args.Reloader, suppressInsertionSound: true);
+
+        if (ReloadNow(args.Reloader, args.Reloadee, suppress: true))
             StartReloadDoAfter(args.Reloader, args.Reloadee);
     }
 
@@ -260,12 +264,21 @@ public sealed class ReloadingSystem: EntitySystem
         ReloadNow(args.User, entity, storage.Value);
     }
 
+    public bool ReloadNow(EntityUid reloader, Entity<ReloadableComponent> reloadee, bool suppress = false)
+    {
+        if (!TryGetReloadingArgsStorage(reloader, out var storage))
+            return false;
+
+        return ReloadNow(reloader, reloadee, storage.Value, suppress);
+    }
+
     public bool ReloadNow(EntityUid reloader, Entity<ReloadableComponent> reloadee, EntityUid storage, bool suppress = false)
     {
-        var attemptEv = new AttemptReloadEvent();
-        RaiseLocalEvent(reloadee.Owner, ref attemptEv);
-        if (attemptEv.Cancelled)
+        var currentEv = new ScoreCurrentReloadableEvent();
+        RaiseLocalEvent(reloadee.Owner, ref currentEv);
+        if (currentEv.Full)
             return false;
+        var currentScore = currentEv.Score;
 
         var replacementContainer = _container.EnsureContainer<Container>(storage, "storagebase");
         var predicateEv = new GetReloadablePredicate();
@@ -274,9 +287,12 @@ public sealed class ReloadingSystem: EntitySystem
             return false;
 
         var predicate = predicateEv.Predicate!;
+        var strategy = predicateEv.Strategy;
 
         EntityUid? replacement = null;
-        var highestScore = 0;
+        var bestScore = 0;
+        if (strategy == ScoringStrategy.Lowest)
+            bestScore = int.MaxValue;
         var lowestNetID = int.MaxValue;
         foreach (var item in replacementContainer.ContainedEntities.Where(x => predicate(x)))
         {
@@ -284,13 +300,13 @@ public sealed class ReloadingSystem: EntitySystem
             RaiseLocalEvent(item, ref ev);
             if (ev.Score <= 0)
                 continue;
-            if (ev.Score > highestScore)
+            if (ev.Score > bestScore && ev.Score > currentScore && strategy == ScoringStrategy.Highest || ev.Score < bestScore && strategy == ScoringStrategy.Lowest)
             {
-                highestScore = ev.Score;
+                bestScore = ev.Score;
                 replacement = item;
                 lowestNetID = GetNetEntity(item).Id;
             }
-            else if (ev.Score == highestScore && GetNetEntity(item).Id < lowestNetID)
+            else if (ev.Score == bestScore && GetNetEntity(item).Id < lowestNetID)
             {
                 lowestNetID = GetNetEntity(item).Id;
                 replacement = item;
@@ -323,6 +339,15 @@ public sealed class ReloadingSystem: EntitySystem
 public record struct ScoreReloadableEvent(int Score = 0, bool Full = false, bool Handled = false);
 
 /// <summary>
+/// Raised on an item to see how its current ammo scores.
+/// </summary>
+/// <param name="Score"></param>
+/// <param name="Full"></param>
+/// <param name="Handled"></param>
+[ByRefEvent]
+public record struct ScoreCurrentReloadableEvent(int Score = 0, bool Full = false, bool Handled = false);
+
+/// <summary>
 /// Raised on an item (like a gun) to force it to reload.
 /// If Suppress is set to true it would not actually reload but still test if it is possible.
 /// </summary>
@@ -337,15 +362,13 @@ public record struct ReloadEvent(EntityUid Replacement, Container ReplacementCon
 /// <param name="Predicate"></param>
 /// <param name="Handled"></param>
 [ByRefEvent]
-public record struct GetReloadablePredicate(Predicate<EntityUid>? Predicate, bool Handled = false);
+public record struct GetReloadablePredicate(Predicate<EntityUid>? Predicate, bool Handled = false, ScoringStrategy Strategy = ScoringStrategy.Highest);
 
-/// <summary>
-/// Cancellable event raised on an item being reloaded.
-/// Cancelled if the item is already full, for example.
-/// </summary>
-/// <param name="Cancelled"></param>
-[ByRefEvent]
-public record struct AttemptReloadEvent(bool Cancelled = false);
+public enum ScoringStrategy
+{
+    Highest,
+    Lowest
+}
 
 [Serializable, NetSerializable]
 public sealed partial class ReloadDoAfterEvent : SimpleDoAfterEvent;
