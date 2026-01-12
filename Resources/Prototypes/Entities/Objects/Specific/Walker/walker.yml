@@ -1,0 +1,36 @@
+- type: preloadedGrid
+  id: WalkerInside
+  path: /Maps/walker_inside.yml
+
+- type: entity
+  id: Walker
+  name: Walker
+  components:
+  - type: InteractionOutline
+  - type: Pullable
+  - type: Physics
+    bodyType: KinematicController
+  - type: GravityAffected
+  - type: Clickable
+  - type: Appearance
+  - type: Fixtures
+    fixtures:
+      fix1:
+        shape:
+          !type:PhysShapeCircle
+          radius: 0.45
+        density: 1000
+        mask:
+        - MobMask
+        layer:
+        - MobLayer
+  - type: Sprite
+    drawdepth: Mobs
+    noRot: true
+    sprite: Objects/Specific/Mech/mecha.rsi
+    layers:
+    - map: [ "enum.MechVisualLayers.Base" ]
+      state: ripley
+  - type: PocketDimension
+    startingGrid: WalkerInside
+
